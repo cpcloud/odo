@@ -12,7 +12,8 @@ except ImportError:
     from urllib.parse import urlparse
 
 import pandas as pd
-from toolz import memoize
+from toolz import memoize, pipe, curry
+from toolz.curried import map
 
 import boto
 
@@ -20,7 +21,7 @@ from into import discover, CSV, resource, append, convert, drop, Temp, JSON
 from into import JSONLines, SSH, into, chunks, HDFS
 
 from .text import TextFile
-from ..utils import tmpfile, ext, sample
+from ..utils import tmpfile, ext, sample, split, pmap
 
 
 @memoize
@@ -213,12 +214,55 @@ def anything_to_s3_text(s3, o, **kwargs):
     return into(s3, into(Temp(s3.subtype), o, **kwargs), **kwargs)
 
 
+@curry
+def upload_part(mp, triple):
+    i, filename, size = triple
+    print('starting upload on part %d' % i)
+    with open(filename, mode='rb') as f:
+        mp.upload_part_from_file(f, i, size=size)
+    return filename
+
+
+@contextmanager
+def multipart_upload(key):
+    mp = key.bucket.initiate_multipart_upload(key.name)
+    try:
+        yield mp
+    except:
+        it = iter(mp)
+        while True:
+            try:
+                next(it)
+            except StopIteration:
+                break
+            else:
+                mp.cancel_upload()
+        raise
+    else:
+        mp.complete_upload()
+
+
+_DEFAULT_CHUNK_SIZE = _MIN_FILE_SIZE = 15 * (1 << 20)
+
+
 @append.register(S3(JSONLines), (JSONLines, Temp(JSONLines)))
 @append.register(S3(JSON), (JSON, Temp(JSON)))
 @append.register(S3(CSV), (CSV, Temp(CSV)))
 @append.register(S3(TextFile), (TextFile, Temp(TextFile)))
-def append_text_to_s3(s3, data, **kwargs):
-    s3.object.set_contents_from_filename(data.path)
+def append_text_to_s3(s3, data,
+                      chunksize=_DEFAULT_CHUNK_SIZE,
+                      min_filesize=_MIN_FILE_SIZE,
+                      **kwargs):
+    path = data.path
+    if os.path.getsize(path) >= min_filesize:
+        with multipart_upload(s3.object) as mp:
+            list(pipe(path,
+                      split(nbytes=chunksize, suffix=os.extsep + ext(path),
+                            start=1),
+                      pmap(upload_part(mp)),
+                      map(os.remove)))
+    else:
+        s3.object.set_contents_from_filename(path)
     return s3
 
 
