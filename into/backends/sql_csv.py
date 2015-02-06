@@ -12,7 +12,8 @@ from ..regex import RegexDispatcher
 from ..append import append
 from .csv import CSV
 from ..temp import Temp
-from ..into import into
+from ..into import convert
+from ..utils import ext
 
 copy_command = RegexDispatcher('copy_command')
 execute_copy = RegexDispatcher('execute_copy')
@@ -106,9 +107,14 @@ except ImportError:
     pass
 else:
     @copy_command.register('redshift.*')
-    def copy_redshift(dialect, tbl, csv, schema_name=None, **kwargs):
-        assert isinstance(csv, S3(CSV))
-        assert csv.path.startswith('s3://')
+    def copy_redshift(dialect, tbl, csv, schema_name=None, compression=None,
+                      format='CSV', **kwargs):
+        assert isinstance(csv, S3(CSV)), 'csv must be an instance of S3(CSV)'
+        assert csv.path.startswith('s3://'), 'csv URI must startwith s3://'
+        assert format.lower() in ('csv', 'json'), \
+            'format must be CSV or JSON, gave %s' % format
+        assert compression is None or compression.lower() in ('gzip', 'lzop'), \
+            'compression can only be GZIP or LZOP, gave %s' % compression
 
         cfg = boto.Config()
 
@@ -120,7 +126,9 @@ else:
                        ignore_header=int(kwargs.get('has_header',
                                                     csv.has_header)),
                        empty_as_null=True,
-                       blanks_as_null=False)
+                       blanks_as_null=False,
+                       compression=(compression or
+                                    {'gz': 'GZIP'}.get(ext(csv.path), '')))
 
         if schema_name is None:
             # 'public' by default, this is a postgres convention
@@ -132,7 +140,8 @@ else:
                           access_key=aws_access_key_id,
                           secret_key=aws_secret_access_key,
                           options=options,
-                          format='CSV')
+                          format={'json': "JSON 'auto'"}.get(format.lower(),
+                                                             format))
         return re.sub(r'\s+(;)', r'\1', re.sub(r'\s+', ' ', str(cmd))).strip()
 
 
@@ -152,7 +161,7 @@ def append_csv_to_sql_table(tbl, csv, **kwargs):
     # move things to a temporary S3 bucket if we're using redshift and we
     # aren't already in S3
     if dialect == 'redshift' and not isinstance(csv, (S3(CSV), Temp(S3(CSV)))):
-        csv = into(Temp(S3(CSV)), csv)
+        csv = convert(Temp(S3(CSV)), csv)
 
     statement = copy_command(dialect, tbl, csv, **kwargs)
     execute_copy(dialect, tbl.bind, statement)

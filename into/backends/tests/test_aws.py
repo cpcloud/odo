@@ -215,3 +215,18 @@ def test_s3_jsonlines_discover():
                      'total_bill']
     types = [json_dshape.measure[name] for name in names]
     assert types == [string, string, int64, string, string, float64, float64]
+
+
+def test_simple_gzip_csv_to_redshift(temp_tb):
+    uri = 's3://nyqpug/tips.csv.gz'
+    dshape = """244 * {
+        total_bill: float64,
+        tip: float64,
+        sex: string[1],
+        smoker: string[1],
+        day: string[4],
+        time: string[10],
+        size: int64
+    }"""
+    table = into(temp_tb, uri, dshape=datashape.dshape(dshape))
+    assert into(set, table) == into(set, uri)
