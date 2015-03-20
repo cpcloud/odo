@@ -59,7 +59,7 @@ with ignoring(ImportError):
 with ignoring(ImportError):
     from .backends.spark import RDD
 with ignoring(ImportError):
-    from .backends.sparksql import SchemaRDD
+    from .backends.sparksql import SparkDataFrame
 
 try:
     from .backends import iopro
@@ -68,7 +68,7 @@ except:
 
 restart_ordering()  # Restart multipledispatch ordering and do ordering
 
-__version__ = '0.2.2'
+__version__ = '0.3.1'
 
 
 def test(verbose=False, junitfile=None, exit=False):

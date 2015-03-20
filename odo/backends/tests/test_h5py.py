@@ -1,5 +1,8 @@
 from __future__ import absolute_import, division, print_function
 
+import pytest
+pytest.importorskip('h5py')
+
 import h5py
 import os
 from contextlib import contextmanager
@@ -208,6 +211,13 @@ def test_resource_with_option_types():
             assert r.dtype == [('name', 'O'), ('amount', 'f4')]
         finally:
             r.file.close()
+
+
+def test_resource_with_h5py_protocol():
+    with tmpfile('.hdf5') as fn:
+        assert isinstance(resource('h5py://' + fn), h5py.File)
+    with tmpfile('.xyz') as fn:
+        assert isinstance(resource('h5py://' + fn), h5py.File)
 
 
 def test_copy_with_into():
