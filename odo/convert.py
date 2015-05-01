@@ -6,6 +6,7 @@ from datashape.predicates import isscalar
 from toolz import concat, partition_all
 from collections import Iterator, Iterable
 import datashape
+from multipledispatch import MDNotImplementedError
 from datashape import discover
 from .core import NetworkDispatcher, ooc_types
 from .chunks import chunks, Chunks
@@ -42,8 +43,9 @@ def numpy_to_series(x, **kwargs):
 
 
 @convert.register(pd.Series, pd.DataFrame, cost=0.1)
-def DataFrame_to_Series(x, **kwargs):
-    assert len(x.columns) == 1
+def dataframe_to_series(x, **kwargs):
+    if len(x.columns) != 1:
+        raise MDNotImplementedError()
     return x[x.columns[0]]
 
 
