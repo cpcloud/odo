@@ -1,12 +1,19 @@
 from __future__ import absolute_import, division, print_function
 
 import os
-from bcolz import ctable, carray
-import numpy as np
-from toolz import keyfilter
-import datashape
-from datashape import discover
 import shutil
+
+from bcolz import ctable, carray
+
+import numpy as np
+import pandas as pd
+
+from toolz import keyfilter
+
+import datashape
+from datashape.predicates import isrecord
+from datashape import discover, from_numpy, var, Fixed
+
 from ..numpy_dtype import dshape_to_numpy
 from ..append import append
 from ..convert import convert, ooc_types
@@ -19,10 +26,12 @@ keywords = ['cparams', 'dflt', 'expectedlen', 'chunklen', 'rootdir']
 
 @discover.register((ctable, carray))
 def discover_bcolz(c, **kwargs):
-    return datashape.from_numpy(c.shape, c.dtype)
+    return from_numpy(c.shape, c.dtype)
 
 
 @append.register((ctable, carray), np.ndarray)
+@append.register(ctable, ctable)
+@append.register(carray, carray)
 def numpy_append_to_bcolz(a, b, **kwargs):
     a.append(b)
     a.flush()
@@ -32,6 +41,13 @@ def numpy_append_to_bcolz(a, b, **kwargs):
 @append.register((ctable, carray), object)
 def numpy_append_to_bcolz(a, b, **kwargs):
     return append(a, convert(chunks(np.ndarray), b, **kwargs), **kwargs)
+
+
+@append.register(ctable, pd.DataFrame)
+def append_frame_to_bcolz(bc, df, **kwargs):
+    expectedlen = kwargs.pop('expectedlen', len(df))
+    return append(bc, ctable.fromdataframe(df, expectedlen=expectedlen),
+                  expectedlen=expectedlen, **kwargs)
 
 
 @convert.register(ctable, np.ndarray, cost=2.0)
@@ -73,7 +89,8 @@ def resource_bcolz(uri, dshape=None, expected_dshape=None, **kwargs):
     if os.path.exists(uri):
         try:
             return ctable(rootdir=uri)
-        except IOError:  # __rootdirs__ doesn't exist because we aren't a ctable
+        # __rootdirs__ doesn't exist because we aren't a ctable
+        except IOError:
             return carray(rootdir=uri)
     else:
         if not dshape:
@@ -81,9 +98,12 @@ def resource_bcolz(uri, dshape=None, expected_dshape=None, **kwargs):
                              " valid datashape")
         dshape = datashape.dshape(dshape)
 
+        if expected_dshape is not None:
+            expected_dshape = datashape.dshape(expected_dshape)
+
         dt = dshape_to_numpy(dshape)
         shape_tail = tuple(map(int, dshape.shape[1:]))  # tail of shape
-        if dshape.shape[0] == datashape.var:
+        if dshape.shape[0] == var or isrecord(dshape.measure):
             shape = (0,) + shape_tail
         else:
             shape = (int(dshape.shape[0]),) + shape_tail
@@ -94,13 +114,11 @@ def resource_bcolz(uri, dshape=None, expected_dshape=None, **kwargs):
         expectedlen = kwargs.pop('expectedlen',
                                  int(expected_dshape[0])
                                  if expected_dshape is not None and
-                                 isinstance(expected_dshape[0], datashape.Fixed)
+                                 isinstance(expected_dshape[0], Fixed)
                                  else None)
 
-        if datashape.predicates.isrecord(dshape.measure):
-            return ctable(x, rootdir=uri, expectedlen=expectedlen, **kwargs)
-        else:
-            return carray(x, rootdir=uri, expectedlen=expectedlen, **kwargs)
+        constructor = ctable if isrecord(dshape.measure) else carray
+        return constructor(x, rootdir=uri, expectedlen=expectedlen, **kwargs)
 
 
 @drop.register((carray, ctable))
