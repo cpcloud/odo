@@ -3,16 +3,20 @@ from __future__ import absolute_import, division, print_function
 import pytest
 pytest.importorskip('bcolz')
 
-from odo.backends.bcolz import (append, convert, ctable, carray, resource,
-                                 discover, drop)
-from odo.chunks import chunks
-from odo import append, convert, discover, into
-import numpy as np
-from odo.utils import tmpfile, ignoring, filetext
-from contextlib import contextmanager
 import shutil
 import os
 import uuid
+from contextlib import contextmanager
+
+import numpy as np
+import pandas as pd
+
+from bcolz import ctable, carray
+
+from odo import odo, append, convert, resource, discover, drop
+from odo.chunks import chunks
+from odo import append, convert, discover, into
+from odo.utils import tmpfile, ignoring, filetext
 
 
 @contextmanager
@@ -27,7 +31,6 @@ def tmpbcolz(*args, **kwargs):
             r.flush()
         if os.path.exists(fn):
             shutil.rmtree(fn)
-
 
 
 def eq(a, b):
@@ -144,7 +147,8 @@ def test_resource_nd_carray():
 
 
 y = np.array([('Alice', 100), ('Bob', 200)],
-            dtype=[('name', 'S7'), ('amount', 'i4')])
+             dtype=[('name', 'S7'), ('amount', 'i4')])
+
 
 def test_convert_numpy_to_ctable():
     b = convert(ctable, y)
@@ -187,3 +191,32 @@ def test_csv_to_bcolz():
         with tmpfile('bcolz') as tgt:
             bc = into(tgt, src)
             assert len(bc) == 3
+
+
+@pytest.mark.parametrize('dim', ['var', 3])
+def test_frame_to_bcolz_does_not_double_in_size(dim):
+    df = pd.DataFrame(dict(a=list('abc'),
+                           b=np.arange(3.0),
+                           c=np.random.randint(10, size=3))).sort_index(axis=1)
+    dshape = "%s * {a: string[1, 'A'], b: float64, c: int64}" % dim
+    result = odo(df, 'tmp.bcolz', dshape=dshape)
+
+    try:
+        assert len(result) == len(df)
+    finally:
+        if os.path.exists('tmp.bcolz'):
+            shutil.rmtree('tmp.bcolz')
+
+
+def test_expected_len_on_ctable():
+    df = pd.DataFrame(dict(a=list('abc'),
+                           b=np.arange(3.0),
+                           c=np.random.randint(10, size=3))).sort_index(axis=1)
+    dshape = "var * {a: string[1, 'A'], b: float64, c: int64}"
+    result = odo(df, 'tmp.bcolz', dshape=dshape)
+    lens = [get_expectedlen(result[c]) for c in result.names]
+    try:
+        assert all(x == len(df) for x in lens)
+    finally:
+        if os.path.exists('tmp.bcolz'):
+            shutil.rmtree('tmp.bcolz')
