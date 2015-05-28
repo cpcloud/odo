@@ -31,6 +31,7 @@ from ..append import append
 from ..resource import resource
 from ..chunks import Chunks
 from .csv import CSV
+from .json import JSONLines
 
 base = (int, float, datetime, date, bool, str)
 
@@ -612,3 +613,23 @@ else:
     @append.register(HDFS(CSV), sa.sql.Selectable)
     def append_selectable_to_hdfs_csv(*args, **kwargs):
         raise MDNotImplementedError()
+
+
+class CopyToJSONLines(sa.sql.expression.Executable, sa.sql.ClauseElement):
+    def __init__(self, element, path):
+        self.element = element
+        self.path = path
+
+
+@compiles(CopyToJSONLines, 'postgresql')
+def compile_copy_to_json_lines(element, compiler, **kwargs):
+    template = "COPY (select row_to_json(t) from (%s) as t) TO '%s'"
+    selectable = element.element
+    return template % (compiler.process(sa.select([selectable])), element.path)
+
+
+@append.register(JSONLines, (sa.sql.Selectable, sa.sql.Select))
+def append_table_to_json_lines(json, selectable, dshape=None, **kwargs):
+    stmt = CopyToJSONLines(selectable, os.path.abspath(json.path), **kwargs)
+    with selectable.bind.begin() as conn:
+        conn.execute(stmt)
