@@ -127,8 +127,13 @@ def compile_from_csv_postgres(element, compiler, **kwargs):
     if len(element.escapechar) != 1:
         raise ValueError('postgres does not allow escapechar longer than 1 '
                          'byte')
+
+    path = os.path.abspath(element.csv.path)
+    program = 'PROGRAM' if path.endswith(('gz', 'bz2')) else ''
+    path = 'gzcat -dc "{0}"'.format(path) if program else path
+
     statement = """
-    COPY {fullname} FROM '{path}'
+    COPY {fullname} FROM {program} '{path}'
         (FORMAT CSV,
          DELIMITER E'{0.delimiter}',
          NULL '{0.na_value}',
@@ -138,7 +143,8 @@ def compile_from_csv_postgres(element, compiler, **kwargs):
          ENCODING '{encoding}')"""
     return statement.format(element,
                             fullname=fullname(element.element, compiler),
-                            path=os.path.abspath(element.csv.path),
+                            program=program,
+                            path=path,
                             header=str(element.header).upper(),
                             encoding=encoding).strip()
 
