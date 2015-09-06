@@ -16,11 +16,12 @@ from odo.utils import assert_allclose, tmpfile
 
 
 names = ('tbl%d' % i for i in itertools.count())
+schema_names = ('schema%d' % i for i in itertools.count())
 data = [(1, 2), (10, 20), (100, 200)]
 null_data = [(1, None), (10, 20), (100, 200)]
 
 
-@pytest.yield_fixture(scope='module')
+@pytest.yield_fixture
 def csv():
     with tmpfile('.csv') as fn:
         with open(fn, 'w') as f:
@@ -36,13 +37,13 @@ def complex_csv():
 
 @pytest.fixture
 def url():
-    return 'postgresql://postgres@localhost/test::%s' % next(names)
+    return 'postgresql://postgres@localhost/test::%s'
 
 
 @pytest.yield_fixture
 def sql(url):
     try:
-        t = resource(url, dshape='var * {a: int32, b: ?int32}')
+        t = resource(url % next(names), dshape='var * {a: int32, b: ?int32}')
     except sa.exc.OperationalError as e:
         pytest.skip(str(e))
     else:
@@ -55,8 +56,8 @@ def sql(url):
 @pytest.yield_fixture
 def sql_with_schema(url):
     try:
-        t = resource(url, dshape='var * {a: int32, b: ?int32}',
-                     schema=next(names))
+        t = resource(url % next(names), dshape='var * {a: int32, b: ?int32}',
+                     schema=next(schema_names))
     except sa.exc.OperationalError as e:
         pytest.skip(str(e))
     else:
@@ -69,7 +70,7 @@ def sql_with_schema(url):
 @pytest.yield_fixture
 def sql_with_ugly_schema(url):
     try:
-        t = resource(url, dshape='var * {a: int32, b: ?int32}',
+        t = resource(url % next(names), dshape='var * {a: int32, b: ?int32}',
                      schema='foo.b.ar')
     except sa.exc.OperationalError as e:
         pytest.skip(str(e))
@@ -87,7 +88,7 @@ def complex_sql(url):
         Name: string, RegistrationDate: date, ZipCode: int32, Consts: float64
     }"""
     try:
-        t = resource(url, dshape=ds)
+        t = resource(url % next(names), dshape=ds)
     except sa.exc.OperationalError as e:
         pytest.skip(str(e))
     else:
