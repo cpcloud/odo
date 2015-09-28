@@ -427,3 +427,28 @@ def test_multibyte_encoding_header(multibyte_csv):
 def test_multibyte_encoding_dialect(multibyte_csv):
         c = CSV(multibyte_csv, encoding='utf8', sniff_nbytes=10)
         assert c.dialect['delimiter'] == ','
+
+
+def test_tsv():
+    data = """event  pdg x   y   z   t   px  py  pz  ekin
+3383    11  -161.515    5.01938e-05 -0.000187112    0.195413    0.664065    0.126078    -0.736968   0.00723234
+1694    11  -161.515    -0.000355633    0.000263174 0.195413    0.511853    -0.523429   0.681196    0.00472714
+4228    11  -161.535    6.59631e-06 -3.32796e-05    0.194947    -0.713983   -0.0265468  -0.69966    0.0108681
+4233    11  -161.515    -0.000524488    6.5069e-05  0.195413    0.942642    0.331324    0.0406377   0.017594"""
+    with tmpfile('.csv') as fn:
+        with open(fn, 'w') as f:
+            f.write(data)
+        tsv = resource(fn, sep='\t')
+        expected = dshape("""var * {
+            event: int64,
+            pdg: int64,
+            x: float64,
+            y: float64,
+            z: float64,
+            t: float64,
+            px: float64,
+            py: float64,
+            pz: float64,
+            ekin: float64
+        }""")
+        assert discover(tsv) == expected
