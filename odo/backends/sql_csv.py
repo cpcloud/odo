@@ -21,7 +21,7 @@ from ..convert import convert
 from .csv import CSV, infer_header
 from ..temp import Temp
 from .aws import S3
-from .sql import fullname, getbind
+from .sql import getbind
 
 
 class CopyFromCSV(Executable, ClauseElement):
@@ -139,10 +139,35 @@ def compile_from_csv_postgres(element, compiler, **kwargs):
          HEADER {header},
          ENCODING '{encoding}')"""
     return statement.format(element,
-                            fullname=fullname(element.element, compiler),
+                            fullname=compiler.preparer.format_table(element.element),
                             path=os.path.abspath(element.csv.path),
                             header=str(element.header).upper(),
                             encoding=encoding).strip()
+
+
+@compiles(CopyFromCSV, 'monetdb')
+def compile_from_csv_monetdb(element, compiler, **kwargs):
+    path = os.path.abspath(element.csv.path)
+    # with open(path, 'rt') as f:
+    #     record_count = sum(1 for _ in f)
+    record_count = 173179760
+    offset = 2 if element.header else 1
+    record_count -= offset - 1
+    statement = sa.text("""
+    COPY :record_count OFFSET :offset RECORDS INTO {0}
+    FROM (:path)
+    USING DELIMITERS :delimiter, :lineterminator, :quotechar
+    NULL AS :na_value
+    """.format(compiler.preparer.format_table(element.element))).bindparams(
+        record_count=record_count,
+        offset=offset,
+        path=path,
+        delimiter=element.delimiter,
+        lineterminator=element.lineterminator,
+        quotechar=element.quotechar,
+        na_value=element.na_value
+    )
+    return compiler.process(statement, **kwargs)
 
 
 try:
