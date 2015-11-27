@@ -146,6 +146,11 @@ def discover_oracle_interval(t):
     return discover(t.adapt(sa.Interval))
 
 
+def infer_encoding(collation):
+    match = re.match(r'^(?P<encoding>utf(?:8|16|32)).*$', collation)
+    return match.groupdict['encoding'] if match is not None else collation
+
+
 @discover.register(sa.sql.type_api.TypeEngine)
 def discover_typeengine(typ):
     if isinstance(typ, sa.Interval):
@@ -170,7 +175,7 @@ def discover_typeengine(typ):
     if isinstance(typ, (sa.NUMERIC, sa.DECIMAL)):
         return datashape.Decimal(precision=typ.precision, scale=typ.scale)
     if isinstance(typ, (sa.String, sa.Unicode)):
-        return datashape.String(typ.length, typ.collation)
+        return datashape.String(typ.length, infer_encoding(typ.collation))
     else:
         for k, v in revtypes.items():
             if isinstance(k, type) and (isinstance(typ, k) or
