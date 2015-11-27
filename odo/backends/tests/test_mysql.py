@@ -4,6 +4,8 @@ import pytest
 
 pymysql = pytest.importorskip('pymysql')
 
+import shutil
+from itertools import product
 from decimal import Decimal
 from datashape import var, DataShape, Record, dshape
 import itertools
@@ -19,11 +21,26 @@ from odo import drop, discover
 from odo.utils import tmpfile
 
 
-pytestmark = pytest.mark.skipif(sys.platform == 'win32',
-                                reason='not well tested on win32 mysql')
+pytestmark = pytest.mark.skipif(
+    sys.platform == 'win32',
+    reason='not well tested on win32 mysql'
+)
 
 username = getpass.getuser()
-url = 'mysql+pymysql://{0}@localhost:3306/test'.format(username)
+
+
+@pytest.fixture(
+    scope='module',
+    params=['utf8', 'latin1', 'cp1257']
+)
+def url(request):
+    s = 'mysql+pymysql://{0}@localhost:3306/test?charset={1}&read_default_file={2}'
+    charset = request.param
+    return s.format(
+        username,
+        charset,
+        os.path.expanduser(os.path.join('~', '.my.cnf'))
+    )
 
 
 def create_csv(data, file_name):
@@ -60,12 +77,12 @@ def name():
 
 
 @pytest.fixture(scope='module')
-def engine():
+def engine(url):
     return sqlalchemy.create_engine(url)
 
 
 @pytest.yield_fixture
-def sql(engine, csv, name):
+def sql(engine, csv, name, url):
     dshape = discover(csv)
     dshape = DataShape(var,
                        Record([(n, typ)
@@ -82,7 +99,7 @@ def sql(engine, csv, name):
 
 
 @pytest.yield_fixture
-def fsql(engine, fcsv, name):
+def fsql(engine, fcsv, name, url):
     dshape = discover(fcsv)
     dshape = DataShape(var,
                        Record([(n, typ)
@@ -113,7 +130,7 @@ def dcsv():
 
 
 @pytest.yield_fixture
-def dsql(engine, dcsv, name):
+def dsql(engine, dcsv, name, url):
     try:
         t = resource('%s::%s' % (url, name), dshape=discover(dcsv))
     except sqlalchemy.exc.OperationalError as e:
@@ -126,7 +143,7 @@ def dsql(engine, dcsv, name):
 
 
 @pytest.yield_fixture
-def decimal_sql(engine, name):
+def decimal_sql(engine, name, url):
     try:
         t = resource('%s::%s' % (url, name),
                      dshape="var * {a: ?decimal[10, 3], b: decimal[11, 2]}")
@@ -137,7 +154,6 @@ def decimal_sql(engine, name):
             yield t
         finally:
             drop(t)
-
 
 
 def test_csv_mysql_load(sql, csv):
@@ -228,29 +244,32 @@ def test_csv_output_does_not_preserve_header(sql, csv):
 
 @pytest.mark.xfail(raises=AssertionError,
                    reason="Remove when all databases are being tested at once")
-def test_different_encoding(name):
+def test_different_encoding(name, url):
     encoding = 'latin1'
-    try:
-        sql = odo(os.path.join(os.path.dirname(__file__), 'encoding.csv'),
-                  url + '::%s' % name,
-                  encoding=encoding)
-    except sa.exc.OperationalError as e:
-        pytest.skip(str(e))
-    else:
+    with tmpfile('.csv') as fn:
+        shutil.copy(
+            os.path.join(os.path.dirname(__file__), 'encoding.csv'),
+            fn
+        )
         try:
-            result = odo(sql, list)
-            expected = [(u'1958.001.500131-1A', 1, None, u'', 899),
-                        (u'1958.001.500156-6', 1, None, u'', 899),
-                        (u'1958.001.500162-1', 1, None, u'', 899),
-                        (u'1958.001.500204-2', 1, None, u'', 899),
-                        (u'1958.001.500204-2A', 1, None, u'', 899),
-                        (u'1958.001.500204-2B', 1, None, u'', 899),
-                        (u'1958.001.500223-6', 1, None, u'', 9610),
-                        (u'1958.001.500233-9', 1, None, u'', 4703),
-                        (u'1909.017.000018-3', 1, 30.0, u'sumaria', 899)]
-            assert result == expected
-        finally:
-            drop(sql)
+            sql = odo(fn, url + '::%s' % name, encoding=encoding)
+        except sa.exc.OperationalError as e:
+            pytest.skip(str(e))
+        else:
+            try:
+                result = odo(sql, list)
+                expected = [(u'1958.001.500131-1A', 1, None, u'', 899),
+                            (u'1958.001.500156-6', 1, None, u'', 899),
+                            (u'1958.001.500162-1', 1, None, u'', 899),
+                            (u'1958.001.500204-2', 1, None, u'', 899),
+                            (u'1958.001.500204-2A', 1, None, u'', 899),
+                            (u'1958.001.500204-2B', 1, None, u'', 899),
+                            (u'1958.001.500223-6', 1, None, u'', 9610),
+                            (u'1958.001.500233-9', 1, None, u'', 4703),
+                            (u'1909.017.000018-3', 1, 30.0, u'sumaria', 899)]
+                assert result == expected
+            finally:
+                drop(sql)
 
 
 def test_decimal(decimal_sql):
