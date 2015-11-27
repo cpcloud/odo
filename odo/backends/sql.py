@@ -175,7 +175,11 @@ def discover_typeengine(typ):
     if isinstance(typ, (sa.NUMERIC, sa.DECIMAL)):
         return datashape.Decimal(precision=typ.precision, scale=typ.scale)
     if isinstance(typ, (sa.String, sa.Unicode)):
-        return datashape.String(typ.length, infer_encoding(typ.collation))
+        try:
+            return datashape.String(typ.length, typ.collation)
+        except KeyError:
+            # unsupported encoding, assume the client decodes to utf8
+            return datashape.String(typ.length, 'U8')
     else:
         for k, v in revtypes.items():
             if isinstance(k, type) and (isinstance(typ, k) or
